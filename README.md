@@ -150,6 +150,29 @@ Key outcomes:
 Interpretation:
 - Directional consistency exists, but these efficient nulls do **not** yet indicate a strongly isolated signal.
 
+### Fast battery rerun with placebo + leave-two-out (Feb 12, 2026 UTC)
+
+Run output:
+- `artifacts/ancillary/void/void_prism_signal_battery_l2o_placebo_20260212_rerun/tables/battery_results.json`
+
+Settings:
+- `fit_amplitude=true`
+- `max_draws=256`
+- `n_perm=500`, `n_sign=500`, `n_placebo=500`
+
+Key outcomes:
+- `positive_delta_fraction=1.0` remains true for all embeddings.
+- Data-side placebo null p-values remain non-extreme:
+  - `minimal`: `~0.307`
+  - `slip_allowed`: `~0.302`
+  - `screening_allowed`: `~0.293`
+- `L2O all-positive fraction = 0.0` for all embeddings.
+- In every seed/embedding, the same dropped pair is worst:
+  - `zbin0_small_z0.200-0.360` + `zbin1_small_z0.360-0.480`
+
+Interpretation:
+- The sign is stable, but the signal still does not cleanly reject placebo/null constructions and remains sensitive to specific low-z/small-Rv blocks.
+
 ## Notes
 
 - This repository preserves the original module namespace (`entropy_horizon_recon`) to minimize code drift from the source pipeline.

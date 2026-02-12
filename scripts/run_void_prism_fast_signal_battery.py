@@ -8,15 +8,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+# Keep threaded BLAS/OpenMP from oversubscribing cores.
+# Must be set before importing numpy/scipy stack.
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
+
 import numpy as np
 
 from entropy_horizon_recon.sirens import load_mu_forward_posterior
 from entropy_horizon_recon.void_prism import eg_gr_baseline_concat_from_background, predict_EG_void_concat_from_mu
-
-# Keep threaded BLAS/OpenMP from oversubscribing cores.
-os.environ.setdefault("OMP_NUM_THREADS", "1")
-os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
-os.environ.setdefault("MKL_NUM_THREADS", "1")
 
 
 def _utc_stamp() -> str:
@@ -208,6 +209,15 @@ def main() -> int:
     ap.add_argument("--max-draws", type=int, default=256, help="Posterior draw cap (default 256 for speed).")
     ap.add_argument("--n-perm", type=int, default=200, help="Block-permutation null draws.")
     ap.add_argument("--n-sign", type=int, default=200, help="Block-sign null draws.")
+    ap.add_argument(
+        "--n-placebo",
+        type=int,
+        default=200,
+        help=(
+            "Data-side block-permutation placebo draws. "
+            "Permutes observed block ordering (with matching covariance permutation) to break sky alignment."
+        ),
+    )
     ap.add_argument("--seed", type=int, default=20260212)
     args = ap.parse_args()
 
@@ -219,6 +229,7 @@ def main() -> int:
     embeddings = list(args.embedding) if args.embedding else ["minimal", "slip_allowed", "screening_allowed"]
     meta, blocks, y_obs, cov = _load_suite(Path(args.suite_json))
     block_cols = _block_indices(blocks, dim=y_obs.size)
+    block_names = [str(b.get("name", f"block{i}")) for i, b in enumerate(blocks)]
     block_tuples = [(float(b["z_eff"]), np.asarray(b["ell"], dtype=int)) for b in blocks]
 
     z_eff = np.array([float(b["z_eff"]) for b in blocks], dtype=float)
@@ -277,7 +288,19 @@ def main() -> int:
                 lpd_gr_s, _ = scorer_full.score(pred_gr * s_vec.reshape((1, -1)))
                 sign_vals[k] = float(lpd_s - lpd_gr_s)
 
-            # 3) Leave-one-block-out robustness.
+            # 3) Data-side block-permutation placebo null.
+            placebo_vals = np.empty(int(args.n_placebo), dtype=float)
+            for k in range(int(args.n_placebo)):
+                perm = rng.permutation(len(block_cols))
+                cols = np.concatenate([block_cols[i] for i in perm], axis=0)
+                y_p = np.asarray(y_obs[cols], dtype=float)
+                C_p = np.asarray(cov[np.ix_(cols, cols)], dtype=float)
+                scorer_p = GaussianScore(y=y_p, cov=C_p, fit_amplitude=fit_amp)
+                lpd_p, _ = scorer_p.score(pred)
+                lpd_gr_p, _ = scorer_p.score(pred_gr)
+                placebo_vals[k] = float(lpd_p - lpd_gr_p)
+
+            # 4) Leave-one-block-out robustness.
             loo = []
             for b in range(len(block_cols)):
                 keep = [i for i in range(len(block_cols)) if i != b]
@@ -286,7 +309,29 @@ def main() -> int:
                 loo.append(d_s)
             loo_vals = np.asarray(loo, dtype=float)
 
-            # 4) Split consistency.
+            # 5) Leave-two-blocks-out robustness.
+            l2o_pairs: list[tuple[int, int]] = []
+            l2o_vals_list: list[float] = []
+            for i in range(len(block_cols)):
+                for j in range(i + 1, len(block_cols)):
+                    keep = [k for k in range(len(block_cols)) if k not in (i, j)]
+                    if not keep:
+                        continue
+                    y_s, C_s, p_s, g_s = _subset_from_blocks(y_obs, cov, pred, pred_gr, block_cols, keep)
+                    _, _, d_s = _score_delta(y=y_s, cov=C_s, pred=p_s, gr=g_s, fit_amplitude=fit_amp)
+                    l2o_pairs.append((i, j))
+                    l2o_vals_list.append(float(d_s))
+            l2o_vals = np.asarray(l2o_vals_list, dtype=float)
+            if l2o_vals.size > 0:
+                worst_idx = int(np.argmin(l2o_vals))
+                worst_pair = {
+                    "drop_blocks": [block_names[l2o_pairs[worst_idx][0]], block_names[l2o_pairs[worst_idx][1]]],
+                    "delta": float(l2o_vals[worst_idx]),
+                }
+            else:
+                worst_pair = None
+
+            # 6) Split consistency.
             split = {}
             if low_blocks and high_blocks:
                 y_l, C_l, p_l, g_l = _subset_from_blocks(y_obs, cov, pred, pred_gr, block_cols, low_blocks)
@@ -313,10 +358,28 @@ def main() -> int:
                     "summary": _summ(sign_vals),
                     "p_upper": _p_upper(sign_vals, float(delta_obs)),
                 },
+                "placebo_data_perm_null": {
+                    "summary": _summ(placebo_vals),
+                    "p_upper": _p_upper(placebo_vals, float(delta_obs)),
+                },
                 "leave_one_block_out": {
                     "summary": _summ(loo_vals),
                     "all": loo_vals.tolist(),
                     "all_positive": bool(np.all(loo_vals > 0.0)),
+                },
+                "leave_two_blocks_out": {
+                    "summary": _summ(l2o_vals),
+                    "all": [
+                        {
+                            "drop_blocks": [block_names[i], block_names[j]],
+                            "delta": float(v),
+                        }
+                        for (i, j), v in zip(l2o_pairs, l2o_vals.tolist(), strict=False)
+                    ],
+                    "n_pairs": int(l2o_vals.size),
+                    "n_nonpositive": int(np.sum(l2o_vals <= 0.0)) if l2o_vals.size > 0 else 0,
+                    "all_positive": bool(np.all(l2o_vals > 0.0)) if l2o_vals.size > 0 else False,
+                    "worst_pair": worst_pair,
                 },
                 "split_consistency": {
                     **split,
@@ -330,7 +393,9 @@ def main() -> int:
                 f"delta_obs={delta_obs:+.4f} "
                 f"p_perm={row['perm_null']['p_upper']:.4f} "
                 f"p_sign={row['sign_null']['p_upper']:.4f} "
-                f"loo_all_pos={row['leave_one_block_out']['all_positive']}",
+                f"p_placebo={row['placebo_data_perm_null']['p_upper']:.4f} "
+                f"loo1_all_pos={row['leave_one_block_out']['all_positive']} "
+                f"loo2_all_pos={row['leave_two_blocks_out']['all_positive']}",
                 flush=True,
             )
 
@@ -344,7 +409,9 @@ def main() -> int:
         deltas = np.array([float(x["delta_obs"]) for x in rr], dtype=float)
         p_perm = np.array([float(x["perm_null"]["p_upper"]) for x in rr], dtype=float)
         p_sign = np.array([float(x["sign_null"]["p_upper"]) for x in rr], dtype=float)
+        p_placebo = np.array([float(x["placebo_data_perm_null"]["p_upper"]) for x in rr], dtype=float)
         loo_ok = np.array([bool(x["leave_one_block_out"]["all_positive"]) for x in rr], dtype=bool)
+        l2o_ok = np.array([bool(x["leave_two_blocks_out"]["all_positive"]) for x in rr], dtype=bool)
         split_ok = np.array([bool(x["split_consistency"]["all_available_positive"]) for x in rr], dtype=bool)
         embedding_summary.append(
             {
@@ -353,8 +420,10 @@ def main() -> int:
                 "delta_obs": _summ(deltas),
                 "perm_p_upper": _summ(p_perm),
                 "sign_p_upper": _summ(p_sign),
+                "placebo_data_perm_p_upper": _summ(p_placebo),
                 "positive_delta_fraction": float(np.mean(deltas > 0.0)),
                 "loo_all_positive_fraction": float(np.mean(loo_ok)),
+                "l2o_all_positive_fraction": float(np.mean(l2o_ok)),
                 "split_all_positive_fraction": float(np.mean(split_ok)),
             }
         )
@@ -370,6 +439,7 @@ def main() -> int:
             "max_draws": int(args.max_draws),
             "n_perm": int(args.n_perm),
             "n_sign": int(args.n_sign),
+            "n_placebo": int(args.n_placebo),
             "seed": int(args.seed),
             "eta0": float(args.eta0),
             "eta1": float(args.eta1),
@@ -389,7 +459,7 @@ def main() -> int:
         f"- Created: `{out['meta']['created_utc']}`",
         f"- Fit amplitude: `{fit_amp}`",
         f"- Draw cap: `{int(args.max_draws)}`",
-        f"- Null reps: perm=`{int(args.n_perm)}`, sign=`{int(args.n_sign)}`",
+        f"- Null reps: perm=`{int(args.n_perm)}`, sign=`{int(args.n_sign)}`, placebo-data-perm=`{int(args.n_placebo)}`",
         "",
         "## Embedding Summary",
         "",
@@ -400,8 +470,10 @@ def main() -> int:
         md_lines.append(f"- delta_obs mean: `{s['delta_obs']['mean']:.6f}`")
         md_lines.append(f"- perm p_upper mean: `{s['perm_p_upper']['mean']:.4f}`")
         md_lines.append(f"- sign p_upper mean: `{s['sign_p_upper']['mean']:.4f}`")
+        md_lines.append(f"- placebo(data-perm) p_upper mean: `{s['placebo_data_perm_p_upper']['mean']:.4f}`")
         md_lines.append(f"- positive delta fraction: `{s['positive_delta_fraction']:.3f}`")
         md_lines.append(f"- LOO all-positive fraction: `{s['loo_all_positive_fraction']:.3f}`")
+        md_lines.append(f"- L2O all-positive fraction: `{s['l2o_all_positive_fraction']:.3f}`")
         md_lines.append(f"- split all-positive fraction: `{s['split_all_positive_fraction']:.3f}`")
         md_lines.append("")
     (tab_dir / "battery_report.md").write_text("\n".join(md_lines))
