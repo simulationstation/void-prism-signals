@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import os
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -16,6 +17,12 @@ from entropy_horizon_recon.optical_bias.maps import _require_astropy
 
 def _utc_stamp() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%SUTC")
+
+
+def _atomic_write_text(path: Path, text: str) -> None:
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(text)
+    os.replace(tmp, path)
 
 
 def _resolve_path(path_like: str, *, project_root: Path) -> Path:
@@ -193,6 +200,11 @@ def main() -> int:
     ap.add_argument("--max-draws", type=int, default=2048)
     ap.add_argument("--jackknife-nside", type=int, default=None, help="Override jackknife nside from suite meta.")
     ap.add_argument("--n-proc", type=int, default=None, help="Override jackknife n_proc from suite meta.")
+    ap.add_argument(
+        "--resume",
+        action="store_true",
+        help="If set, reuse existing split outputs (skip measurement/joint when results already exist).",
+    )
     ap.add_argument("--out", default=None, help="Output directory (default outputs/void_prism_split_replication_<UTC>).")
     args = ap.parse_args()
 
@@ -270,6 +282,27 @@ def main() -> int:
     jk_nside = int(args.jackknife_nside) if args.jackknife_nside is not None else int(suite_meta.get("jackknife_nside", 8))
     n_proc = int(args.n_proc) if args.n_proc is not None else int(suite_meta.get("n_proc", 1))
 
+    created_utc = datetime.now(timezone.utc).isoformat()
+    meta_common = {
+        "created_utc": created_utc,
+        "suite_json": str(args.suite_json),
+        "project_root": str(project_root),
+        "split_axis": str(args.split_axis),
+        "run_dirs": [str(r) for r in args.run_dir],
+        "embeddings": embeddings,
+        "fit_amplitude": bool(args.fit_amplitude),
+        "max_draws": int(args.max_draws),
+        "convention": str(args.convention),
+        "eta0": float(args.eta0),
+        "eta1": float(args.eta1),
+        "env_proxy": float(args.env_proxy),
+        "env_alpha": float(args.env_alpha),
+        "muP_highz": float(args.muP_highz),
+        "jackknife_nside": int(jk_nside),
+        "n_proc": int(n_proc),
+        "split_catalog_rows": split_counts,
+    }
+
     per_split_summary: dict[str, Any] = {}
     for split_name, split_csv in split_csvs.items():
         split_dir = out_dir / split_name.replace("/", "_")
@@ -278,104 +311,119 @@ def main() -> int:
         measure_out.mkdir(parents=True, exist_ok=True)
         joint_out.mkdir(parents=True, exist_ok=True)
 
-        measure_cmd = [
-            str(args.python),
-            str(repo_root / "scripts" / "measure_void_prism_eg_suite_jackknife.py"),
-            "--void-csv",
-            str(split_csv),
-            "--theta-fits",
-            ",".join(theta_fits),
-            "--ra-col",
-            ra_col,
-            "--dec-col",
-            dec_col,
-            "--z-col",
-            z_col,
-            "--Rv-col",
-            rv_col if rv_col is not None else "none",
-            "--weight-col",
-            wt_col if wt_col is not None else "none",
-            "--frame",
-            frame,
-            "--nside",
-            str(nside),
-            "--bin-edges",
-            bin_edges,
-            "--prefactor",
-            str(prefactor),
-            "--eg-sign",
-            str(eg_sign),
-            "--z-edges",
-            z_edges,
-            "--rv-split",
-            rv_split,
-            "--jackknife-nside",
-            str(jk_nside),
-            "--n-proc",
-            str(n_proc),
-            "--out-base",
-            str(measure_out),
-        ]
-        if lmax is not None:
-            measure_cmd.extend(["--lmax", str(int(lmax))])
-        if theta_mask_fits is not None:
-            measure_cmd.extend(["--theta-mask-fits", ",".join(theta_mask_fits)])
-        if kappa_fits is None and kappa_source == "planck":
-            measure_cmd.append("--planck")
-        else:
-            if kappa_fits is None:
-                raise RuntimeError("Non-planck kappa source but no kappa path resolved.")
-            measure_cmd.extend(["--kappa-fits", kappa_fits])
-            if mask_fits is not None:
-                measure_cmd.extend(["--mask-fits", mask_fits])
-        if extra_mask_res is not None:
-            measure_cmd.extend(["--extra-mask-fits", extra_mask_res])
-
-        _run(measure_cmd, cwd=repo_root)
-
         split_suite = measure_out / "tables" / "suite_joint.json"
-        if not split_suite.exists():
-            raise FileNotFoundError(f"Expected split suite output missing: {split_suite}")
-
-        joint_cmd = [
-            str(args.python),
-            str(repo_root / "scripts" / "run_void_prism_eg_joint_test.py"),
-        ]
-        for rd in args.run_dir:
-            joint_cmd.extend(["--run-dir", str(rd)])
-        joint_cmd.extend(
-            [
-                "--suite-json",
-                str(split_suite),
-                "--convention",
-                str(args.convention),
-                "--eta0",
-                str(float(args.eta0)),
-                "--eta1",
-                str(float(args.eta1)),
-                "--env-proxy",
-                str(float(args.env_proxy)),
-                "--env-alpha",
-                str(float(args.env_alpha)),
-                "--muP-highz",
-                str(float(args.muP_highz)),
-                "--max-draws",
-                str(int(args.max_draws)),
-                "--out",
-                str(joint_out),
-            ]
-        )
-        if bool(args.fit_amplitude):
-            joint_cmd.append("--fit-amplitude")
-        for emb in embeddings:
-            joint_cmd.extend(["--embedding", emb])
-
-        _run(joint_cmd, cwd=repo_root)
-
         res_json = joint_out / "tables" / "results.json"
-        if not res_json.exists():
-            raise FileNotFoundError(f"Expected joint results missing: {res_json}")
-        per_split_summary[split_name] = _embedding_summary_from_joint(res_json)
+        if bool(args.resume) and res_json.exists():
+            print(f"[split_repl] split={split_name} using existing joint results: {res_json}", flush=True)
+            per_split_summary[split_name] = _embedding_summary_from_joint(res_json)
+        else:
+            measure_cmd = [
+                str(args.python),
+                str(repo_root / "scripts" / "measure_void_prism_eg_suite_jackknife.py"),
+                "--void-csv",
+                str(split_csv),
+                "--theta-fits",
+                ",".join(theta_fits),
+                "--ra-col",
+                ra_col,
+                "--dec-col",
+                dec_col,
+                "--z-col",
+                z_col,
+                "--Rv-col",
+                rv_col if rv_col is not None else "none",
+                "--weight-col",
+                wt_col if wt_col is not None else "none",
+                "--frame",
+                frame,
+                "--nside",
+                str(nside),
+                "--bin-edges",
+                bin_edges,
+                "--prefactor",
+                str(prefactor),
+                "--eg-sign",
+                str(eg_sign),
+                "--z-edges",
+                z_edges,
+                "--rv-split",
+                rv_split,
+                "--jackknife-nside",
+                str(jk_nside),
+                "--n-proc",
+                str(n_proc),
+                "--out-base",
+                str(measure_out),
+            ]
+            if lmax is not None:
+                measure_cmd.extend(["--lmax", str(int(lmax))])
+            if theta_mask_fits is not None:
+                measure_cmd.extend(["--theta-mask-fits", ",".join(theta_mask_fits)])
+            if kappa_fits is None and kappa_source == "planck":
+                measure_cmd.append("--planck")
+            else:
+                if kappa_fits is None:
+                    raise RuntimeError("Non-planck kappa source but no kappa path resolved.")
+                measure_cmd.extend(["--kappa-fits", kappa_fits])
+                if mask_fits is not None:
+                    measure_cmd.extend(["--mask-fits", mask_fits])
+            if extra_mask_res is not None:
+                measure_cmd.extend(["--extra-mask-fits", extra_mask_res])
+
+            if not (bool(args.resume) and split_suite.exists()):
+                _run(measure_cmd, cwd=repo_root)
+                if not split_suite.exists():
+                    raise FileNotFoundError(f"Expected split suite output missing: {split_suite}")
+            else:
+                print(f"[split_repl] split={split_name} using existing measurement: {split_suite}", flush=True)
+
+            joint_cmd = [
+                str(args.python),
+                str(repo_root / "scripts" / "run_void_prism_eg_joint_test.py"),
+            ]
+            for rd in args.run_dir:
+                joint_cmd.extend(["--run-dir", str(rd)])
+            joint_cmd.extend(
+                [
+                    "--suite-json",
+                    str(split_suite),
+                    "--convention",
+                    str(args.convention),
+                    "--eta0",
+                    str(float(args.eta0)),
+                    "--eta1",
+                    str(float(args.eta1)),
+                    "--env-proxy",
+                    str(float(args.env_proxy)),
+                    "--env-alpha",
+                    str(float(args.env_alpha)),
+                    "--muP-highz",
+                    str(float(args.muP_highz)),
+                    "--max-draws",
+                    str(int(args.max_draws)),
+                    "--out",
+                    str(joint_out),
+                ]
+            )
+            if bool(args.resume):
+                joint_cmd.append("--resume")
+            if bool(args.fit_amplitude):
+                joint_cmd.append("--fit-amplitude")
+            for emb in embeddings:
+                joint_cmd.extend(["--embedding", emb])
+
+            _run(joint_cmd, cwd=repo_root)
+
+            if not res_json.exists():
+                raise FileNotFoundError(f"Expected joint results missing: {res_json}")
+            per_split_summary[split_name] = _embedding_summary_from_joint(res_json)
+
+        partial = {
+            "meta": meta_common,
+            "per_split_summary": per_split_summary,
+            "status": {"completed_splits": list(per_split_summary.keys()), "expected_splits": list(split_csvs.keys())},
+        }
+        _atomic_write_text(tab_dir / "split_replication_partial.json", json.dumps(partial, indent=2))
 
     split_names = list(per_split_summary.keys())
     if len(split_names) != 2:
@@ -384,28 +432,12 @@ def main() -> int:
 
     out = {
         "meta": {
-            "created_utc": datetime.now(timezone.utc).isoformat(),
-            "suite_json": str(args.suite_json),
-            "project_root": str(project_root),
-            "split_axis": str(args.split_axis),
-            "run_dirs": [str(r) for r in args.run_dir],
-            "embeddings": embeddings,
-            "fit_amplitude": bool(args.fit_amplitude),
-            "max_draws": int(args.max_draws),
-            "convention": str(args.convention),
-            "eta0": float(args.eta0),
-            "eta1": float(args.eta1),
-            "env_proxy": float(args.env_proxy),
-            "env_alpha": float(args.env_alpha),
-            "muP_highz": float(args.muP_highz),
-            "jackknife_nside": int(jk_nside),
-            "n_proc": int(n_proc),
-            "split_catalog_rows": split_counts,
+            **meta_common,
         },
         "per_split_summary": per_split_summary,
         "comparison": comparison,
     }
-    (tab_dir / "split_replication_results.json").write_text(json.dumps(out, indent=2))
+    _atomic_write_text(tab_dir / "split_replication_results.json", json.dumps(out, indent=2))
 
     md = [
         "# Void-Prism Split Replication",
@@ -438,7 +470,7 @@ def main() -> int:
             f"- `{emb}`: same_sign=`{c['same_sign']}` within_factor_2=`{c['within_factor_2']}` "
             f"amp_ratio=`{c['amp_ratio']:.3f}` abs_diff=`{c['abs_diff']:.6f}`"
         )
-    (tab_dir / "split_replication_report.md").write_text("\n".join(md))
+    _atomic_write_text(tab_dir / "split_replication_report.md", "\n".join(md))
 
     print(str(out_dir))
     return 0

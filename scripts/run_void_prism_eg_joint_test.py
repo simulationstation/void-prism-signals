@@ -19,6 +19,12 @@ os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 os.environ.setdefault("MKL_NUM_THREADS", "1")
 
 
+def _atomic_write_text(path: Path, text: str) -> None:
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(text)
+    os.replace(tmp, path)
+
+
 def _utc_stamp() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%SUTC")
 
@@ -156,6 +162,11 @@ def main() -> int:
     ap.add_argument("--run-dir", action="append", required=True, help="Finished run directory (contains samples/).")
     ap.add_argument("--suite-json", required=True, help="suite_joint.json written by measure_void_prism_eg_suite_jackknife.py")
     ap.add_argument("--out", default=None, help="Output directory (default: outputs/void_prism_eg_joint_<UTCSTAMP>).")
+    ap.add_argument(
+        "--resume",
+        action="store_true",
+        help="If set, load existing results_partial/results.json in --out and skip completed (run,embedding) rows with matching settings.",
+    )
     ap.add_argument("--convention", choices=["A", "B"], default="A", help="mu->coupling convention (A: mu(z)/mu0).")
     ap.add_argument(
         "--embedding",
@@ -254,12 +265,71 @@ def main() -> int:
         print(f"[void_prism_joint] (showing first 10 blocks; total={len(blocks)})", flush=True)
 
     rows: list[dict[str, Any]] = []
+    done: set[tuple[str, str, str]] = set()
+    if bool(args.resume):
+        existing = tab_dir / "results_partial.json"
+        if not existing.exists():
+            existing = tab_dir / "results.json"
+        if existing.exists():
+            try:
+                loaded = json.loads(existing.read_text())
+                if isinstance(loaded, list):
+                    sig = (
+                        str(args.convention),
+                        float(args.eta0),
+                        float(args.eta1),
+                        float(args.env_proxy),
+                        float(args.env_alpha),
+                        float(args.muP_highz),
+                        bool(args.fit_amplitude),
+                        bool(report_both_amplitudes),
+                        int(args.max_draws) if args.max_draws else None,
+                    )
+
+                    def _row_sig(r: dict[str, Any]) -> tuple[Any, ...]:
+                        md = r.get("max_draws")
+                        md_i = None if md is None else int(md)
+                        return (
+                            str(r.get("convention")),
+                            float(r.get("eta0")),
+                            float(r.get("eta1")),
+                            float(r.get("env_proxy")),
+                            float(r.get("env_alpha")),
+                            float(r.get("muP_highz")),
+                            bool(r.get("fit_amplitude")),
+                            bool(r.get("report_both_amplitudes")),
+                            md_i,
+                        )
+
+                    dropped = 0
+                    kept: list[dict[str, Any]] = []
+                    for r in loaded:
+                        if not isinstance(r, dict) or r.get("status") != "ok":
+                            dropped += 1
+                            continue
+                        if _row_sig(r) != sig:
+                            dropped += 1
+                            continue
+                        run = str(r.get("run"))
+                        mv = str(r.get("mapping_variant"))
+                        emb = str(r.get("embedding"))
+                        kept.append(r)
+                        done.add((run, mv, emb))
+                    rows = kept
+                    print(f"[void_prism_joint] resume: loaded {len(rows)} ok rows (dropped {dropped})", flush=True)
+            except Exception as e:
+                print(f"[void_prism_joint] resume: failed to load {existing} ({e}); starting fresh", flush=True)
+
     for rd in args.run_dir:
         run_path = Path(rd)
-        print(f"[void_prism_joint] loading posterior: {run_path}", flush=True)
-        post = load_mu_forward_posterior(run_path)
         run_label = run_path.name
         mapping_variant = _detect_mapping_variant(run_path)
+        if bool(args.resume) and all((run_label, mapping_variant, emb) in done for emb in embeddings):
+            print(f"[void_prism_joint] skipping completed run: {run_label}", flush=True)
+            continue
+
+        print(f"[void_prism_joint] loading posterior: {run_path}", flush=True)
+        post = load_mu_forward_posterior(run_path)
 
         print(f"[void_prism_joint] {run_label} predicting GR baseline (single growth solve per draw)...", flush=True)
         eg_gr = eg_gr_baseline_concat_from_background(post, blocks=block_tuples, max_draws=int(args.max_draws) if args.max_draws else None)
@@ -284,6 +354,10 @@ def main() -> int:
             print(f"[void_prism_joint] {run_label} GR lpd_primary={lpd_gr:.3g}", flush=True)
 
         for emb in embeddings:
+            if bool(args.resume) and (run_label, mapping_variant, emb) in done:
+                print(f"[void_prism_joint] skipping completed row: {run_label} emb={emb}", flush=True)
+                continue
+
             print(f"[void_prism_joint] {run_label} predicting emb={emb} (single growth solve per draw)...", flush=True)
             eg = predict_EG_void_concat_from_mu(
                 post,
@@ -370,7 +444,8 @@ def main() -> int:
                 amp_q84=amp_stats["q84"],
             )
             rows.append({**asdict(row), "status": "ok", "suite_meta": meta})
-            (tab_dir / "results_partial.json").write_text(json.dumps(rows, indent=2))
+            done.add((run_label, mapping_variant, str(emb)))
+            _atomic_write_text(tab_dir / "results_partial.json", json.dumps(rows, indent=2))
             print(
                 f"[void_prism_joint] {run_label} emb={emb} "
                 f"ΔLPD_primary={(lpd-lpd_gr):+.3g} "
@@ -380,7 +455,7 @@ def main() -> int:
                 flush=True,
             )
 
-    (tab_dir / "results.json").write_text(json.dumps(rows, indent=2))
+    _atomic_write_text(tab_dir / "results.json", json.dumps(rows, indent=2))
     print(str(out_dir))
     return 0
 
