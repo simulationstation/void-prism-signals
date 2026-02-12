@@ -1,0 +1,137 @@
+\documentclass[fleqn,usenatbib]{mnras}
+\usepackage[T1]{fontenc}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{xspace}
+\usepackage{booktabs}
+
+\newcommand{\dLPD}{\ensuremath{\Delta\mathrm{LPD}}\xspace}
+\newcommand{\EG}{\ensuremath{E_{\mathrm{G}}^{\mathrm{void}}}\xspace}
+
+\title[Void-Prism Signal Status]{Void-Prism Ancillary Signal Status: Persistent Directionality Without Decisive Null Rejection}
+
+\author[Simulation Station Collaboration]{
+Simulation Station Collaboration\\
+E-mail: contact@simulationstation.example
+}
+
+\date{Accepted 2026 February 12. Received 2026 February 12; in original form 2026 February 12}
+\pubyear{2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+We present a standalone release of the void-prism ancillary pipeline and a compact evidence update using five independent posterior seeds.
+The joint scorer compares modified-gravity embeddings against an internal GR baseline via \dLPD.
+Across the explicit multi-embedding run (minimal, slip-allowed, screening-allowed), all seeds remain same-sign positive, with mean fitted-amplitude shifts of
+$+0.0423$ (minimal), $+0.0414$ (slip-allowed), and $+0.0490$ (screening-allowed).
+To test whether this persistence is likely to reflect a real isolated signal, we run an efficient battery: block-permutation nulls, block-sign nulls, leave-one-block-out (LOO), and split-consistency checks.
+The sign persistence remains strong, but null-tail probabilities are not small (typical upper-tail $p\sim0.27$--$0.56$), and LOO minima are negative in all embeddings.
+We therefore interpret the current void-prism channel as directionally consistent but not yet decisive: the signal persists, but statistical fluke or residual systematics remain plausible.
+\end{abstract}
+
+\begin{keywords}
+cosmology: observations -- cosmology: theory -- large-scale structure of Universe -- gravitational lensing: weak
+\end{keywords}
+
+\section{Introduction}
+Ancillary probes are useful for stress-testing the direction and channel localization of primary cosmological anomalies.
+Here we summarize the status of a void-conditioned prism observable based on the ratio
+\begin{equation}
+\EG(\ell) \propto \frac{C_{\kappa,v}(\ell)}{C_{\theta,v}(\ell)},
+\end{equation}
+constructed from Planck lensing, ACT/SDSS-derived velocity-proxy maps, and BOSS DR12 void catalog splits.
+The score reported throughout is
+\begin{equation}
+\dLPD_{\rm vs\,GR} \equiv \mathrm{LPD}_{\rm model} - \mathrm{LPD}_{\rm GR},
+\end{equation}
+with GR treated as an internal baseline generated from the same background draws.
+
+\section{Data Products and Pipeline}
+The release includes a standalone implementation containing:
+(i) theta-map construction,
+(ii) z/Rv-binned suite measurement with jackknife covariance, and
+(iii) joint posterior-predictive scoring.
+The bundled suite uses 8 blocks (4 redshift bins each split by median void radius), with 48-dimensional concatenated data vector and jackknife covariance from 603 regions.
+
+Two result families are included:
+\begin{enumerate}
+\item A legacy 5-seed minimal-embedding run with mean $\dLPD_{\rm vs\,GR}=+0.0182$.
+\item An explicit 5-seed $\times$ 3-embedding run with non-degenerate settings
+($\eta_0=1.12$, $\eta_1=-0.18$, $\alpha_{\rm env}=0.25$, $\mu_{\rm P,high\text{-}z}=1.05$).
+\end{enumerate}
+
+\section{Updated Multi-Embedding Results}
+Figure~\ref{fig:deltas} shows per-seed \dLPD values for each embedding in the explicit run.
+All seeds are positive in all embeddings, with modest seed-to-seed scatter.
+Screening-allowed gives the largest mean shift, while minimal and slip-allowed are close.
+
+\begin{figure}
+\centering
+\includegraphics[width=\columnwidth]{fig_delta_by_seed.pdf}
+\caption{Per-seed fitted-amplitude \dLPD values in the explicit 5-seed multi-embedding run. Dashed lines show embedding means.}
+\label{fig:deltas}
+\end{figure}
+
+\section{Fast Signal Battery}
+To test whether persistence alone indicates a real isolated signal, we ran a low-cost battery over all five seeds and three embeddings (draw cap 256):
+\begin{itemize}
+\item block-permutation null (misalignment null),
+\item block-sign null,
+\item leave-one-block-out robustness,
+\item split consistency (low/high-$z$, small/large-$R_v$).
+\end{itemize}
+
+Figure~\ref{fig:pvals} shows null-tail behavior.
+Upper-tail permutation $p$-values cluster near $0.27$--$0.30$ and sign-null $p$-values near $0.53$--$0.56$, i.e. not extreme.
+Figure~\ref{fig:robust} shows that split means remain positive, but LOO minima are negative for all embeddings.
+
+\begin{figure}
+\centering
+\includegraphics[width=\columnwidth]{fig_battery_pvalues.pdf}
+\caption{Fast battery null diagnostics across five seeds for each embedding. Horizontal red lines mark reference levels 0.05 and 0.01.}
+\label{fig:pvals}
+\end{figure}
+
+\begin{figure}
+\centering
+\includegraphics[width=\columnwidth]{fig_robustness_checks.pdf}
+\caption{Robustness diagnostics. Left: mean and scatter of LOO minimum \dLPD (negative values indicate block fragility). Right: mean split \dLPD values remain positive.}
+\label{fig:robust}
+\end{figure}
+
+\section{Interpretation and Conclusion}
+The updated status is:
+\begin{enumerate}
+\item \textbf{Persistence:} the direction is stable (all seeds positive in all tested embeddings).
+\item \textbf{Non-decisiveness:} efficient nulls are not strongly rejected.
+\item \textbf{Fragility:} negative LOO minima indicate sensitivity to block composition.
+\end{enumerate}
+
+Therefore, the void-prism channel remains a useful directional cross-check but not a standalone discriminator at current S/N and calibration depth.
+The practical reading is concise: the signal persists, but a statistical fluke or residual systematic explanation is still plausible.
+
+\section*{Data Availability}
+All artifacts used in this letter are included in the repository under
+\texttt{artifacts/ancillary/void/}, including the explicit multi-embedding run and battery outputs.
+
+\section*{Acknowledgements}
+This manuscript was generated from the public repository release of the void-prism ancillary pipeline.
+
+\begin{thebibliography}{99}
+
+\bibitem[Planck Collaboration et al.(2020)]{Planck2018Lensing}
+Planck Collaboration et al., 2020, A\&A, 641, A8
+
+\bibitem[Aiola et al.(2020)]{Aiola2020}
+Aiola S. et al., 2020, JCAP, 12, 047
+
+\bibitem[Mao et al.(2017)]{Mao2017}
+Mao Q. et al., 2017, MNRAS, 466, 1042
+
+\end{thebibliography}
+
+\bsp
+\label{lastpage}
+\end{document}
