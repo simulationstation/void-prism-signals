@@ -16,6 +16,7 @@ This repo contains the scripts and minimal Python module set needed to:
 - `scripts/run_void_prism_eg_joint_test.py`
 - `scripts/run_void_prism_fast_signal_battery.py`
 - `scripts/run_void_prism_map_placebo_battery.py`
+- `scripts/run_void_prism_split_replication.py`
 - `src/entropy_horizon_recon/` minimal transitive module set for the above scripts
 - `artifacts/ancillary/void/` bundled example result artifacts
 
@@ -218,6 +219,12 @@ Mean map-placebo upper-tail p-values by embedding:
 
 Interpretation:
 - Under stronger map-level falsification nulls, observed deltas are still not in the extreme tail.
+
+### Current Status (Feb 12, 2026 UTC)
+
+- Working interpretation: evidence is directionally in favor of a signal and appears stronger in high-power follow-ups.
+- Decision status: **not decision-grade yet**.
+- Reason: null/placebo rejection is still weak overall and block/split robustness remains the gating criterion.
 
 ## Notes
 
