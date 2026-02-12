@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "void-prism-signals"
+version = "0.1.0"
+description = "Void-prism signal measurement and joint MG-vs-GR scoring pipeline"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [{name = "Simulation Station"}]
+dependencies = [
+  "numpy>=1.26",
+  "scipy>=1.11",
+  "pooch>=1.8",
+]
+
+[project.optional-dependencies]
+healpix = [
+  "healpy>=1.16",
+  "astropy>=6.0",
+]
+theta_builder = [
+  "healpy>=1.16",
+  "astropy>=6.0",
+  "hmvec",
+  "pixell",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.pytest.ini_options]
+addopts = "-q"
