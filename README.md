@@ -15,6 +15,7 @@ This repo contains the scripts and minimal Python module set needed to:
 - `scripts/measure_void_prism_eg_suite_jackknife.py`
 - `scripts/run_void_prism_eg_joint_test.py`
 - `scripts/run_void_prism_fast_signal_battery.py`
+- `scripts/run_void_prism_map_placebo_battery.py`
 - `src/entropy_horizon_recon/` minimal transitive module set for the above scripts
 - `artifacts/ancillary/void/` bundled example result artifacts
 
@@ -102,6 +103,32 @@ PYTHONPATH=src python scripts/run_void_prism_fast_signal_battery.py \
   --out outputs/void_prism_signal_battery
 ```
 
+### 5) Map-level placebo battery (rotations + randomized centers)
+
+This runs two stronger falsification nulls on the data vector construction:
+- random global sky rotations of void centers (`rotate`),
+- random center draws from the valid analysis mask per block (`random_mask`).
+
+```bash
+PYTHONPATH=src python scripts/run_void_prism_map_placebo_battery.py \
+  --run-dir /path/to/M0_start101 \
+  --run-dir /path/to/M0_start202 \
+  --run-dir /path/to/M0_start303 \
+  --run-dir /path/to/M0_start404 \
+  --run-dir /path/to/M0_start505 \
+  --suite-json artifacts/ancillary/void/void_prism_three_source_suite_joint.json \
+  --project-root /path/to/project_with_data_cache \
+  --embedding minimal \
+  --embedding slip_allowed \
+  --embedding screening_allowed \
+  --fit-amplitude \
+  --max-draws 256 \
+  --placebo-mode rotate \
+  --placebo-mode random_mask \
+  --n-placebo 64 \
+  --out outputs/void_prism_map_placebo
+```
+
 ## Bundled Results
 
 ### Legacy 5-seed minimal-embedding run
@@ -172,6 +199,25 @@ Key outcomes:
 
 Interpretation:
 - The sign is stable, but the signal still does not cleanly reject placebo/null constructions and remains sensitive to specific low-z/small-Rv blocks.
+
+### Map-level placebo battery (Feb 12, 2026 UTC)
+
+Run output:
+- `artifacts/ancillary/void/void_prism_map_placebo_20260212_64x2/tables/map_placebo_results.json`
+
+Settings:
+- `fit_amplitude=true`
+- `max_draws=256`
+- placebo modes: `rotate`, `random_mask`
+- placebo draws per mode: `64`
+
+Mean map-placebo upper-tail p-values by embedding:
+- `minimal`: `rotate ~0.471`, `random_mask ~0.551`
+- `slip_allowed`: `rotate ~0.486`, `random_mask ~0.569`
+- `screening_allowed`: `rotate ~0.471`, `random_mask ~0.511`
+
+Interpretation:
+- Under stronger map-level falsification nulls, observed deltas are still not in the extreme tail.
 
 ## Notes
 
