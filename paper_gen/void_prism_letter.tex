@@ -2,13 +2,14 @@
 \usepackage[T1]{fontenc}
 \usepackage{graphicx}
 \usepackage{amsmath}
+\usepackage{amssymb}
 \usepackage{xspace}
 \usepackage{booktabs}
 
 \newcommand{\dLPD}{\ensuremath{\Delta\mathrm{LPD}}\xspace}
 \newcommand{\EG}{\ensuremath{E_{\mathrm{G}}^{\mathrm{void}}}\xspace}
 
-\title[Void-Prism Signal Status]{Void-Prism Ancillary Signal Status: Persistent Directionality Without Decisive Null Rejection}
+\title[Void-Prism Signal Update]{Void-Prism Ancillary Signal Update: Persistent Direction with Sub-1$\sigma$ Null-Calibrated Evidence}
 
 \author[Simulation Station Collaboration]{
 Simulation Station Collaboration\\
@@ -22,13 +23,15 @@ E-mail: contact@simulationstation.example
 \maketitle
 
 \begin{abstract}
-We present a standalone release of the void-prism ancillary pipeline and a compact evidence update using five independent posterior seeds.
-The joint scorer compares modified-gravity embeddings against an internal GR baseline via \dLPD.
-Across the explicit multi-embedding run (minimal, slip-allowed, screening-allowed), all seeds remain same-sign positive, with mean fitted-amplitude shifts of
+We present a compact status update of the standalone void-prism ancillary pipeline using five independent posterior seeds and three modified-gravity embeddings.
+The joint score is \dLPD relative to an internal GR baseline.
+All seeds remain positive in all embeddings, with mean fitted-amplitude shifts
 $+0.0423$ (minimal), $+0.0414$ (slip-allowed), and $+0.0490$ (screening-allowed).
-To test whether this persistence is likely to reflect a real isolated signal, we run an efficient battery: block-permutation nulls, block-sign nulls, leave-one-block-out (LOO), and split-consistency checks.
-The sign persistence remains strong, but null-tail probabilities are not small (typical upper-tail $p\sim0.27$--$0.56$), and LOO minima are negative in all embeddings.
-We therefore interpret the current void-prism channel as directionally consistent but not yet decisive: the signal persists, but statistical fluke or residual systematics remain plausible.
+A sign-only persistence test gives one-sided $p=0.03125$ ($1.86\sigma$), but null-calibrated tests are not extreme:
+fast battery permutation/sign/data-placebo means are $p\sim0.27$--$0.55$, map-level rotation/random-center placebos are $p\sim0.47$--$0.57$, corresponding to roughly $|Z|\lesssim0.6$ one-sided.
+Robustness remains limited: leave-one-out and leave-two-out all-positive fractions are zero for all embeddings, with nonpositive subset fractions $0.25$ and $0.321$.
+An external sky split (NGC versus SGC) is same-sign positive in all embeddings but amplitude-mismatched by factors $\sim15$--$16$.
+The current channel is therefore directionally consistent but not decision-grade.
 \end{abstract}
 
 \begin{keywords}
@@ -49,17 +52,20 @@ The score reported throughout is
 with GR treated as an internal baseline generated from the same background draws.
 
 \section{Data Products and Pipeline}
-The release includes a standalone implementation containing:
+The release includes a standalone implementation with:
 (i) theta-map construction,
 (ii) z/Rv-binned suite measurement with jackknife covariance, and
 (iii) joint posterior-predictive scoring.
 The bundled suite uses 8 blocks (4 redshift bins each split by median void radius), with 48-dimensional concatenated data vector and jackknife covariance from 603 regions.
+To support long runs, the current release includes partial-checkpoint/resume support for jackknife measurement and joint scoring.
 
-Two result families are included:
+The evidence update summarized here uses:
 \begin{enumerate}
-\item A legacy 5-seed minimal-embedding run with mean $\dLPD_{\rm vs\,GR}=+0.0182$.
-\item An explicit 5-seed $\times$ 3-embedding run with non-degenerate settings
-($\eta_0=1.12$, $\eta_1=-0.18$, $\alpha_{\rm env}=0.25$, $\mu_{\rm P,high\text{-}z}=1.05$).
+\item explicit 5-seed $\times$ 3-embedding joint scoring with non-degenerate settings
+($\eta_0=1.12$, $\eta_1=-0.18$, $\alpha_{\rm env}=0.25$, $\mu_{\rm P,high\text{-}z}=1.05$);
+\item a fast battery with 500 permutation/sign/data-placebo draws;
+\item map-level placebo tests (rotation and mask-randomized centers, 64 draws per mode);
+\item NGC/SGC split replication at max-draws 5000.
 \end{enumerate}
 
 \section{Updated Multi-Embedding Results}
@@ -74,47 +80,105 @@ Screening-allowed gives the largest mean shift, while minimal and slip-allowed a
 \label{fig:deltas}
 \end{figure}
 
-\section{Fast Signal Battery}
-To test whether persistence alone indicates a real isolated signal, we ran a low-cost battery over all five seeds and three embeddings (draw cap 256):
+\section{Null-Calibrated Tests}
+To test whether persistence indicates an isolated signal, we ran a fast battery over all five seeds and three embeddings:
 \begin{itemize}
 \item block-permutation null (misalignment null),
 \item block-sign null,
-\item leave-one-block-out robustness,
+\item data-placebo permutation null,
+\item leave-one and leave-two block drop tests,
 \item split consistency (low/high-$z$, small/large-$R_v$).
 \end{itemize}
 
-Figure~\ref{fig:pvals} shows null-tail behavior.
-Upper-tail permutation $p$-values cluster near $0.27$--$0.30$ and sign-null $p$-values near $0.53$--$0.56$, i.e. not extreme.
-Figure~\ref{fig:robust} shows that split means remain positive, but LOO minima are negative for all embeddings.
+Figure~\ref{fig:pvals} and Table~\ref{tab:nulls} summarize the null tails.
+Permutation and data-placebo tails are typically $p\sim0.27$--$0.31$; sign-null tails are $p\sim0.51$--$0.55$.
+Under one-sided Gaussian mapping, this corresponds to approximately $|Z|\lesssim0.6$.
+Map-level placebos (Figure~\ref{fig:mapplacebo}) are also non-extreme.
 
 \begin{figure}
 \centering
 \includegraphics[width=\columnwidth]{fig_battery_pvalues.pdf}
-\caption{Fast battery null diagnostics across five seeds for each embedding. Horizontal red lines mark reference levels 0.05 and 0.01.}
+\caption{Fast-battery null diagnostics across five seeds for each embedding: permutation, block-sign, and data-placebo permutation tests. Horizontal red lines mark reference levels 0.05 and 0.01.}
 \label{fig:pvals}
 \end{figure}
+
+\begin{table}
+\centering
+\caption{Mean upper-tail null $p$-values by embedding (five seeds).}
+\label{tab:nulls}
+\begin{tabular}{lccccc}
+\toprule
+Embedding & Perm & Sign & Data-placebo & Rotate & Random-mask \\
+\midrule
+minimal & 0.289 & 0.521 & 0.307 & 0.471 & 0.551 \\
+slip\_allowed & 0.271 & 0.511 & 0.302 & 0.486 & 0.569 \\
+screening\_allowed & 0.303 & 0.549 & 0.293 & 0.471 & 0.511 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}
+\centering
+\includegraphics[width=\columnwidth]{fig_map_placebo_pvalues.pdf}
+\caption{Map-level placebo diagnostics (global rotations and mask-randomized centers). Mean tails remain non-extreme for all embeddings.}
+\label{fig:mapplacebo}
+\end{figure}
+
+\section{Robustness and Split Replication}
+Figure~\ref{fig:robust} shows two robustness diagnostics.
+All embeddings keep positive low/high-$z$ and small/large-$R_v$ split means, but block-drop stability is weak:
+the fraction of nonpositive subsets is $0.25$ for leave-one-out and $0.321$ for leave-two-out (all embeddings).
+The worst leave-two-out pair is identical in all runs:
+\texttt{zbin0\_small\_z0.200-0.360} plus \texttt{zbin1\_small\_z0.360-0.480}.
 
 \begin{figure}
 \centering
 \includegraphics[width=\columnwidth]{fig_robustness_checks.pdf}
-\caption{Robustness diagnostics. Left: mean and scatter of LOO minimum \dLPD (negative values indicate block fragility). Right: mean split \dLPD values remain positive.}
+\caption{Robustness diagnostics. Left: fraction of nonpositive block-drop subsets (LOO and L2O). Right: intra-suite split means.}
 \label{fig:robust}
 \end{figure}
 
-\section{Interpretation and Conclusion}
-The updated status is:
+External split replication (Figure~\ref{fig:splitrepl}, Table~\ref{tab:split}) is same-sign positive but strongly amplitude-mismatched: SGC/NGC ratios are $\sim15$--$16$ in all embeddings.
+
+\begin{figure}
+\centering
+\includegraphics[width=\columnwidth]{fig_split_replication.pdf}
+\caption{NGC/SGC split replication. Left: per-split means. Right: amplitude ratio (SGC/NGC), with dashed line at factor 2.}
+\label{fig:splitrepl}
+\end{figure}
+
+\begin{table}
+\centering
+\caption{Split replication mean \dLPD and SGC/NGC amplitude ratio.}
+\label{tab:split}
+\begin{tabular}{lccc}
+\toprule
+Embedding & NGC mean & SGC mean & Ratio \\
+\midrule
+minimal & +0.964 & +15.519 & 16.10 \\
+slip\_allowed & +0.922 & +15.126 & 16.41 \\
+screening\_allowed & +1.121 & +16.962 & 15.13 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Conclusion}
+The current status is:
 \begin{enumerate}
-\item \textbf{Persistence:} the direction is stable (all seeds positive in all tested embeddings).
-\item \textbf{Non-decisiveness:} efficient nulls are not strongly rejected.
-\item \textbf{Fragility:} negative LOO minima indicate sensitivity to block composition.
+\item \textbf{Directional persistence:} all seeds are positive in all tested embeddings.
+\item \textbf{Weak null-calibrated significance:} null tails correspond to about sub-1$\sigma$ evidence.
+\item \textbf{Structural fragility:} block-drop tests and NGC/SGC amplitude mismatch indicate incomplete robustness.
 \end{enumerate}
 
-Therefore, the void-prism channel remains a useful directional cross-check but not a standalone discriminator at current S/N and calibration depth.
-The practical reading is concise: the signal persists, but a statistical fluke or residual systematic explanation is still plausible.
+Therefore, the void-prism channel remains useful as a directional cross-check, but not yet as a standalone discriminator.
+The data currently favor persistence in sign, while a fluke or residual systematic interpretation remains viable.
 
 \section*{Data Availability}
-All artifacts used in this letter are included in the repository under
-\texttt{artifacts/ancillary/void/}, including the explicit multi-embedding run and battery outputs.
+All artifacts used here are in-repo under:
+\texttt{artifacts/ancillary/void/void\_prism\_joint\_explicit\_multiembed\_20260212\_001503UTC/},
+\texttt{outputs/void\_prism\_signal\_battery\_l2o\_placebo\_20260212\_rerun/},
+\texttt{outputs/void\_prism\_map\_placebo\_20260212\_64x2/},
+and \texttt{outputs/void\_prism\_split\_replication\_20260212\_5000/}.
 
 \section*{Acknowledgements}
 This manuscript was generated from the public repository release of the void-prism ancillary pipeline.
